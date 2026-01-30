@@ -20,10 +20,10 @@ export async function generatePrototype(
   
   const parts: any[] = [
     { text: `System: You are the 'Stitch & Lovable' App Factory Architect. 
-    Your mission is to transform a Web Proposal, Codebase ZIP, or Live Link into a comprehensive native-optimized blueprint for Android, iOS, and Windows.
+    Your mission is to transform a Web Proposal, Codebase ZIP, Image Mockups, or Live Link into a comprehensive native-optimized blueprint for Android, iOS, and Windows.
     Focus on high-fidelity components, platform-specific navigation patterns (Android Bottom Nav, iOS Tab Bar, Windows Sidebar), and seamless design continuity.
     Strictly use Material 3 (Stitch) tokens for the core design system.` },
-    { text: `User Goal: "${prompt || "Transform my web vision into a native multi-platform app experience."}".` }
+    { text: `User Goal: "${prompt || "Transform my source material (Web/Image/Code) into a native multi-platform app experience."}".` }
   ];
 
   if (gitLensData) {
@@ -37,12 +37,14 @@ export async function generatePrototype(
   if (attachments.length > 0) {
     const zipFiles = attachments.filter(a => a.type === 'zip').map(a => a.name);
     const folders = attachments.filter(a => a.type === 'folder').map(a => a.name);
+    const images = attachments.filter(a => a.type === 'image').map(a => a.name);
     
     parts.push({ 
-      text: `Proposal Context: Attached assets: 
+      text: `Proposal Context & Attachments: 
+      Images/Mockups: ${images.join(', ') || 'None'}. (Treat these as the UI Source of Truth).
       ZIP (Code Artifacts): ${zipFiles.join(', ') || 'None'}.
       Folders (Web Structure): ${folders.join(', ') || 'None'}.
-      Convert these web/logic structures into their native app blueprint counterparts.` 
+      Convert these visual/logic structures into their native app blueprint counterparts.` 
     });
   }
 

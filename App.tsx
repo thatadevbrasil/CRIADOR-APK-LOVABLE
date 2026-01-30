@@ -35,7 +35,9 @@ import {
   Layout,
   Layers,
   Search,
-  User
+  User,
+  Image as ImageIcon,
+  FileImage
 } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -67,6 +69,7 @@ const App: React.FC = () => {
   const [attachments, setAttachments] = useState<ProjectAttachment[]>([]);
   const zipInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
 
   const [lovableLink, setLovableLink] = useState<string | null>(null);
 
@@ -102,7 +105,9 @@ const App: React.FC = () => {
 
     try {
       setStatus(GenerationStatus.ANALYZING_CONTEXT);
-      addLog(`Mapeando proposta: Web para Multi-Plataforma...`);
+      const hasImages = attachments.some(a => a.type === 'image');
+      const inputType = projectLink ? 'URL' : hasImages ? 'Mockups' : 'Texto';
+      addLog(`Processando Input: ${inputType} para Native Binaries...`);
       await new Promise(r => setTimeout(r, 1500));
       
       setStatus(GenerationStatus.THINKING);
@@ -119,11 +124,11 @@ const App: React.FC = () => {
       setStatus(GenerationStatus.SUCCESS);
       const link = await generateLovableLink(generatedProto);
       setLovableLink(link);
-      addLog(`Apps para Android, iOS e Windows prontos para build.`);
+      addLog(`Compilação preliminar finalizada.`);
     } catch (error) {
       console.error("Generation failed:", error);
       setStatus(GenerationStatus.ERROR);
-      addLog("Erro na síntese Gemini: Verifique sua conexão.");
+      addLog("Erro Crítico: Falha na análise de input.");
     }
   };
 
@@ -194,6 +199,20 @@ const App: React.FC = () => {
     a.click();
     URL.revokeObjectURL(url);
     addLog("Blueprint JSON exportado com sucesso.");
+  };
+
+  const handleAttachment = (e: React.ChangeEvent<HTMLInputElement>, type: 'zip' | 'folder' | 'image') => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const newAtt: ProjectAttachment = {
+        id: Math.random().toString(),
+        name: file.name,
+        type: type,
+        size: (file.size / 1024).toFixed(1) + 'KB'
+      };
+      setAttachments(prev => [...prev, newAtt]);
+      addLog(`${type.toUpperCase()} anexado: ${file.name}`);
+    }
   };
 
   const PricingModal = () => (
@@ -281,7 +300,7 @@ const App: React.FC = () => {
           </div>
           <div>
             <h1 className="font-black text-lg leading-none tracking-tight">STITCH & LOVABLE</h1>
-            <p className="text-[9px] text-indigo-400 font-bold uppercase tracking-widest mt-1">Web-to-Native Factory</p>
+            <p className="text-[9px] text-indigo-400 font-bold uppercase tracking-widest mt-1">Web-to-APK Studio</p>
           </div>
         </div>
 
@@ -289,59 +308,74 @@ const App: React.FC = () => {
            <div className="flex items-center gap-3">
               <Zap className="w-4 h-4 text-indigo-400" />
               <div>
-                 <p className="text-[10px] font-black uppercase text-slate-500 tracking-widest">Créditos</p>
-                 <p className="text-xs font-black text-white">{credits.available} <span className="text-slate-600 text-[10px]">restantes</span></p>
+                 <p className="text-[10px] font-black uppercase text-slate-500 tracking-widest">Build Credits</p>
+                 <p className="text-xs font-black text-white">{credits.available} <span className="text-slate-600 text-[10px]">tokens</span></p>
               </div>
            </div>
            <Plus className="w-4 h-4 text-slate-600 group-hover:text-white" />
         </div>
 
-        <div className="space-y-4">
+        <div className="space-y-5">
           <div className="space-y-2">
-            <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest px-1">Proposta de Transformação</label>
-            <textarea
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              placeholder="Descreva como seu site vira um app mobile..."
-              className="w-full h-24 bg-slate-900/50 border border-white/5 rounded-2xl p-4 text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all resize-none placeholder:text-slate-700 font-medium"
-            />
-          </div>
-
-          <div className="space-y-2">
-             <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest px-1">URL Fonte (Web Site)</label>
+             <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest px-1">Fonte: Website (URL)</label>
              <div className="relative">
                 <Globe className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-600" />
                 <input 
                   type="text" 
                   value={projectLink} 
                   onChange={e => setProjectLink(e.target.value)}
-                  placeholder="https://seu-site.com"
-                  className="w-full bg-slate-900/50 border border-white/5 rounded-xl pl-10 pr-4 py-3 text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all"
+                  placeholder="https://exemplo.com"
+                  className="w-full bg-slate-900/50 border border-white/5 rounded-xl pl-10 pr-4 py-3 text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all font-mono"
                 />
              </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-2">
-             <button onClick={() => zipInputRef.current?.click()} className="flex flex-col items-center justify-center gap-2 p-3 rounded-2xl bg-white/5 border border-white/5 hover:border-indigo-500/40 hover:bg-indigo-500/5 transition-all text-[9px] font-bold group">
-               <input type="file" accept=".zip" className="hidden" ref={zipInputRef} onChange={e => {
-                  const file = e.target.files?.[0];
-                  if (file) addLog(`ZIP detectado: ${file.name}`);
-               }} />
-               <FileArchive className="w-5 h-5 text-amber-400 group-hover:scale-110 transition-transform" /> Anexar ZIP
+          <div className="space-y-2">
+            <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest px-1">Contexto / Detalhes</label>
+            <textarea
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              placeholder="Descreva funcionalidades específicas ou cole requisitos técnicos..."
+              className="w-full h-24 bg-slate-900/50 border border-white/5 rounded-xl p-4 text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all resize-none placeholder:text-slate-700 font-mono leading-relaxed"
+            />
+          </div>
+
+          <div className="grid grid-cols-3 gap-2">
+             <button onClick={() => imageInputRef.current?.click()} className="flex flex-col items-center justify-center gap-1.5 p-3 rounded-xl bg-white/5 border border-white/5 hover:border-pink-500/40 hover:bg-pink-500/5 transition-all text-[8px] font-bold group">
+               <input type="file" accept="image/*" className="hidden" ref={imageInputRef} onChange={(e) => handleAttachment(e, 'image')} />
+               <ImageIcon className="w-4 h-4 text-pink-400 group-hover:scale-110 transition-transform" /> IMAGEM
              </button>
-             <button onClick={() => folderInputRef.current?.click()} className="flex flex-col items-center justify-center gap-2 p-3 rounded-2xl bg-white/5 border border-white/5 hover:border-blue-500/40 hover:bg-blue-500/5 transition-all text-[9px] font-bold group">
+             <button onClick={() => zipInputRef.current?.click()} className="flex flex-col items-center justify-center gap-1.5 p-3 rounded-xl bg-white/5 border border-white/5 hover:border-indigo-500/40 hover:bg-indigo-500/5 transition-all text-[8px] font-bold group">
+               <input type="file" accept=".zip" className="hidden" ref={zipInputRef} onChange={(e) => handleAttachment(e, 'zip')} />
+               <FileArchive className="w-4 h-4 text-indigo-400 group-hover:scale-110 transition-transform" /> ZIP
+             </button>
+             <button onClick={() => folderInputRef.current?.click()} className="flex flex-col items-center justify-center gap-1.5 p-3 rounded-xl bg-white/5 border border-white/5 hover:border-blue-500/40 hover:bg-blue-500/5 transition-all text-[8px] font-bold group">
                <input type="file" className="hidden" ref={folderInputRef} />
-               <FolderOpen className="w-5 h-5 text-blue-400 group-hover:scale-110 transition-transform" /> Pasta Dev
+               <FolderOpen className="w-4 h-4 text-blue-400 group-hover:scale-110 transition-transform" /> PASTA
              </button>
           </div>
+          
+          {attachments.length > 0 && (
+            <div className="space-y-1">
+              {attachments.map(att => (
+                <div key={att.id} className="flex items-center justify-between p-2 rounded-lg bg-white/5 border border-white/5">
+                   <div className="flex items-center gap-2 overflow-hidden">
+                      {att.type === 'image' ? <FileImage className="w-3 h-3 text-pink-400" /> : <FileCode className="w-3 h-3 text-indigo-400" />}
+                      <span className="text-[10px] text-slate-300 truncate max-w-[120px]">{att.name}</span>
+                   </div>
+                   <span className="text-[9px] text-slate-600 font-mono">{att.size}</span>
+                </div>
+              ))}
+            </div>
+          )}
 
           <button
             onClick={handleGenerate}
             disabled={status !== GenerationStatus.IDLE && status !== GenerationStatus.SUCCESS && status !== GenerationStatus.ERROR}
-            className="w-full py-4 bg-gradient-to-r from-indigo-600 to-indigo-500 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-2 hover:translate-y-[-2px] hover:shadow-xl hover:shadow-indigo-600/20 active:translate-y-[0] disabled:opacity-30 transition-all shadow-lg"
+            className="w-full py-4 bg-gradient-to-r from-indigo-600 to-indigo-500 rounded-xl font-black text-[10px] uppercase tracking-widest flex items-center justify-center gap-2 hover:translate-y-[-1px] hover:shadow-xl hover:shadow-indigo-600/20 active:translate-y-[0] disabled:opacity-30 transition-all shadow-lg border-t border-white/10"
           >
             {status === GenerationStatus.THINKING ? <Cpu className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
-            GERAR APPS (2 <Zap className="w-2.5 h-2.5 inline" />)
+            TRANSFORMAR EM APK
           </button>
         </div>
 
@@ -412,10 +446,10 @@ const App: React.FC = () => {
                         <Sparkles className="w-3 h-3" /> AI Native Factory v4.0
                      </div>
                      <h1 className="text-4xl lg:text-6xl font-black tracking-tighter leading-[1.1]">
-                        Web to <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-pink-500">Native</span> <br className="hidden lg:block"/> in Seconds.
+                        Web to <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-pink-500">APK</span> <br className="hidden lg:block"/> Factory.
                      </h1>
                      <p className="text-slate-400 text-sm lg:text-base leading-relaxed max-w-lg mx-auto lg:mx-0">
-                        The first intelligent engine that converts Lovable web projects and ZIP archives into production-ready APK, IPA, and EXE binaries.
+                        Upload your website link, prototype images, or code archives. We compile them into production-ready Android and iOS binaries instantly.
                      </p>
                   </div>
 
@@ -429,7 +463,7 @@ const App: React.FC = () => {
                               type="text" 
                               value={projectLink}
                               onChange={e => setProjectLink(e.target.value)}
-                              placeholder="Paste project URL..." 
+                              placeholder="Paste website URL to convert..." 
                               className="w-full bg-black/40 border border-white/10 rounded-xl pl-11 pr-4 py-4 text-sm focus:ring-2 focus:ring-indigo-500 transition-all outline-none text-white"
                            />
                         </div>
@@ -443,9 +477,9 @@ const App: React.FC = () => {
                   </div>
 
                   <div className="flex flex-wrap justify-center lg:justify-start gap-4 text-[10px] font-bold text-slate-500 uppercase tracking-widest">
-                     <span className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5"><CheckCircle2 className="w-3 h-3 text-emerald-500" /> Android 14</span>
-                     <span className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5"><CheckCircle2 className="w-3 h-3 text-blue-500" /> iOS 17</span>
-                     <span className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5"><CheckCircle2 className="w-3 h-3 text-indigo-500" /> Windows 11</span>
+                     <span className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5"><CheckCircle2 className="w-3 h-3 text-emerald-500" /> Image to App</span>
+                     <span className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5"><CheckCircle2 className="w-3 h-3 text-blue-500" /> Web to App</span>
+                     <span className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5"><CheckCircle2 className="w-3 h-3 text-indigo-500" /> Code to App</span>
                   </div>
                </div>
 

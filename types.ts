@@ -55,9 +55,15 @@ export interface GitHubRepo {
 export interface ProjectAttachment {
   id: string;
   name: string;
-  type: 'video' | 'folder' | 'image';
+  type: 'video' | 'folder' | 'image' | 'zip';
   size: string;
   data?: string; // base64 for images/video thumbnails
+}
+
+export interface UserCredits {
+  available: number;
+  lastReset: string;
+  plan: 'free' | 'basic' | 'pro' | 'elite';
 }
 
 export enum GenerationStatus {
@@ -68,6 +74,7 @@ export enum GenerationStatus {
   COMPILING = 'compiling',
   PUSHING_GITHUB = 'pushing_github',
   ANALYZING_CONTEXT = 'analyzing_context',
+  GITLENS_ANALYSIS = 'gitlens_analysis',
   SUCCESS = 'success',
   ERROR = 'error'
 }

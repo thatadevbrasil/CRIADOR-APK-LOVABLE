@@ -2,41 +2,60 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { Prototype, GitHubRepo, ProjectAttachment } from "../types";
 
+export interface IconConcept {
+  id: string;
+  style: string;
+  description: string;
+  prompt: string;
+}
+
 export async function generatePrototype(
   prompt: string, 
   attachments: ProjectAttachment[] = [],
   hasSupabase: boolean = false,
-  projectLink: string = ""
+  projectLink: string = "",
+  gitLensData: string = ""
 ): Promise<Prototype> {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
   const parts: any[] = [
-    { text: `System: You are the 'Stitch & Lovable' AI Architect. Your goal is to generate high-fidelity mobile app prototypes that strictly adhere to Google's 'Stitch' (Material 3) design principles while providing the full-stack readiness of 'Lovable'.` },
-    { text: `User Prompt: "${prompt}".` }
+    { text: `System: You are the 'Stitch & Lovable' App Factory Architect. 
+    Your mission is to transform a Web Proposal, Codebase ZIP, or Live Link into a comprehensive native-optimized blueprint for Android, iOS, and Windows.
+    Focus on high-fidelity components, platform-specific navigation patterns (Android Bottom Nav, iOS Tab Bar, Windows Sidebar), and seamless design continuity.
+    Strictly use Material 3 (Stitch) tokens for the core design system.` },
+    { text: `User Goal: "${prompt || "Transform my web vision into a native multi-platform app experience."}".` }
   ];
 
+  if (gitLensData) {
+    parts.push({ text: `Development Context: ${gitLensData}. Maintain the logic and state flow found in the codebase history.` });
+  }
+
   if (projectLink) {
-    parts.push({ text: `Target Project Link: ${projectLink}. Use this as the primary reference for existing UI structure and navigation logic.` });
+    parts.push({ text: `Source Web Link: ${projectLink}. Extract the visual structure, layout hierarchy, and user journey from this URL to create the app equivalent.` });
   }
 
   if (attachments.length > 0) {
+    const zipFiles = attachments.filter(a => a.type === 'zip').map(a => a.name);
+    const folders = attachments.filter(a => a.type === 'folder').map(a => a.name);
+    
     parts.push({ 
-      text: `Context Analysis: The user has attached existing project files (${attachments.length} items). 
-      These include: ${attachments.map(a => `${a.type} named '${a.name}'`).join(', ')}. 
-      Analyze the implied structure, components, and logic from these attachments to ensure continuity.` 
+      text: `Proposal Context: Attached assets: 
+      ZIP (Code Artifacts): ${zipFiles.join(', ') || 'None'}.
+      Folders (Web Structure): ${folders.join(', ') || 'None'}.
+      Convert these web/logic structures into their native app blueprint counterparts.` 
     });
   }
 
   if (hasSupabase) {
-    parts.push({ text: "Backend: The project uses Supabase. Generate a SQL schema manifest in 'databaseSchema' that perfectly maps to the UI requirements." });
+    parts.push({ text: "Backend: Integration with Supabase Cloud is active. Ensure the schema reflects the existing database migrations found in the proposal." });
   }
 
   parts.push({ 
-    text: `Output Requirements:
-    1. Generate a cohesive multi-screen prototype.
-    2. Use Material 3 color tokens (Primary, Secondary, Tertiary).
-    3. Ensure a logical 'Lovable' style app structure.
-    4. Provide detailed props for each component (Material 3 style).` 
+    text: `Output Format:
+    1. A cohesive multi-screen blueprint.
+    2. Theme definition for Material 3.
+    3. Detailed UI components and data models.
+    4. Adaptive layouts for mobile and desktop (Windows).` 
   });
 
   const response = await ai.models.generateContent({
@@ -44,7 +63,7 @@ export async function generatePrototype(
     contents: { parts },
     config: {
       responseMimeType: "application/json",
-      thinkingConfig: { thinkingBudget: 6000 },
+      thinkingConfig: { thinkingBudget: 8000 },
       responseSchema: {
         type: Type.OBJECT,
         properties: {
@@ -127,14 +146,42 @@ export async function generatePrototype(
   return JSON.parse(text);
 }
 
-export async function generateAppIcon(appName: string): Promise<string> {
+export async function generateIconConcepts(appName: string, appDesc: string): Promise<IconConcept[]> {
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const response = await ai.models.generateContent({
+    model: "gemini-3-flash-preview",
+    contents: `Generate 4 distinct app icon concepts for a multi-platform app named "${appName}" (${appDesc}). 
+    Provide: 1. Style name, 2. Brief description, 3. Visual prompt for an image generator.
+    Styles should include: Adaptive Material 3, Premium Glassmorphism (iOS), Modern Fluent (Windows), and Minimalist High-Contrast.`,
+    config: {
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            id: { type: Type.STRING },
+            style: { type: Type.STRING },
+            description: { type: Type.STRING },
+            prompt: { type: Type.STRING }
+          },
+          required: ["id", "style", "description", "prompt"]
+        }
+      }
+    }
+  });
+
+  return JSON.parse(response.text || "[]");
+}
+
+export async function generateAppIcon(customPrompt: string): Promise<string> {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const response = await ai.models.generateContent({
     model: 'gemini-2.5-flash-image',
     contents: {
       parts: [
         {
-          text: `App icon for "${appName}". Style: Google 'Stitch' Material 3 iconography. Flat, geometric, vibrant, 3D shadows. Vector-like precision.`,
+          text: `A professional, high-fidelity app icon suitable for Android Adaptive Icons, iOS App Store, and Windows Store. Prompt: ${customPrompt}. Solid background, centralized design, 4k, digital art style.`,
         },
       ],
     },
@@ -155,7 +202,7 @@ export async function generateAppIcon(appName: string): Promise<string> {
 
 export async function generateLovableLink(prototype: Prototype): Promise<string> {
   const hash = btoa(prototype.name + prototype.id).substring(0, 12).toLowerCase();
-  return `https://lovable.dev/app/${hash}`;
+  return `https://lovable.dev/project/${hash}`;
 }
 
 export async function mockFetchRepositories(): Promise<GitHubRepo[]> {

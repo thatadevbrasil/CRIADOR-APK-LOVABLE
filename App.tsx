@@ -1,684 +1,720 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { generatePrototype, generateAppIcon, generateLovableLink, mockFetchRepositories } from './services/geminiService';
-import { Prototype, GenerationStatus, GitHubRepo, ProjectAttachment } from './types';
+import { generatePrototype, generateAppIcon, generateLovableLink, generateIconConcepts, IconConcept } from './services/geminiService';
+import { Prototype, GenerationStatus, ProjectAttachment, UserCredits } from './types';
 import MobilePreview from './components/MobilePreview';
 import { 
   Sparkles, 
-  Terminal, 
-  Layers, 
   Download, 
   Smartphone, 
-  Plus, 
   Cpu, 
   Zap,
-  Layout,
-  ChevronRight,
   Code,
-  Github,
-  Link as LinkIcon,
   Globe,
   CheckCircle2,
   ExternalLink,
-  ChevronDown,
-  Video,
   FolderOpen,
   X,
   FileCode,
-  Play,
-  Database,
-  ShieldCheck,
-  Eye,
-  EyeOff,
-  Files,
-  FileDown,
-  Maximize2,
-  Box,
+  PlayCircle,
+  Plus,
+  ChevronRight,
   RefreshCw,
-  Package,
-  Link2
+  Box,
+  HardDriveDownload,
+  TerminalSquare,
+  FileArchive,
+  Palette,
+  Lightbulb,
+  ShieldCheck,
+  TrendingUp,
+  SmartphoneNfc,
+  Maximize2,
+  Apple,
+  Monitor,
+  Layout,
+  Layers,
+  Search,
+  User
 } from 'lucide-react';
 
 const App: React.FC = () => {
+  // --- Core State ---
   const [prompt, setPrompt] = useState('');
   const [projectLink, setProjectLink] = useState('');
   const [status, setStatus] = useState<GenerationStatus>(GenerationStatus.IDLE);
   const [prototype, setPrototype] = useState<Prototype | null>(null);
   const [appIcon, setAppIcon] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'preview' | 'code' | 'assets' | 'deploy'>('preview');
-  
-  // APK Build Simulation States
-  const [isBuildingAPK, setIsBuildingAPK] = useState(false);
+  const [iconConcepts, setIconConcepts] = useState<IconConcept[]>([]);
+  const [activeTab, setActiveTab] = useState<'preview' | 'code' | 'assets' | 'deploy' | 'apk'>('preview');
+  const [runtimeLogs, setRuntimeLogs] = useState<string[]>([]);
+  const [showPricing, setShowPricing] = useState(false);
+
+  // --- Credits & Plan State ---
+  const [credits, setCredits] = useState<UserCredits>(() => {
+    const saved = localStorage.getItem('stitch_credits');
+    if (saved) return JSON.parse(saved);
+    return { available: 10, lastReset: new Date().toDateString(), plan: 'free' };
+  });
+
+  // --- Build Simulation States ---
+  const [isBuilding, setIsBuilding] = useState(false);
+  const [buildType, setBuildType] = useState<'android' | 'ios' | 'windows' | null>(null);
   const [buildProgress, setBuildProgress] = useState(0);
   const [buildStep, setBuildStep] = useState('');
 
-  // State for Supabase
-  const [supabaseUrl, setSupabaseUrl] = useState('');
-  const [supabaseAnonKey, setSupabaseAnonKey] = useState('');
-  const [isSupabaseConnected, setIsSupabaseConnected] = useState(false);
-
-  // Attachments State
+  // --- Attachments State ---
   const [attachments, setAttachments] = useState<ProjectAttachment[]>([]);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const zipInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
 
-  // GitHub & Lovable states
   const [lovableLink, setLovableLink] = useState<string | null>(null);
-  const [repos, setRepos] = useState<GitHubRepo[]>([]);
-  const [selectedRepo, setSelectedRepo] = useState<GitHubRepo | null>(null);
-  const [isGithubConnected, setIsGithubConnected] = useState(false);
+
+  // --- Effects ---
+  useEffect(() => {
+    const today = new Date().toDateString();
+    if (credits.lastReset !== today) {
+      const resetCount = credits.plan === 'free' ? 10 : credits.plan === 'basic' ? 50 : 999;
+      setCredits(prev => ({ ...prev, available: resetCount, lastReset: today }));
+    }
+  }, [credits.lastReset, credits.plan]);
+
+  useEffect(() => {
+    localStorage.setItem('stitch_credits', JSON.stringify(credits));
+  }, [credits]);
+
+  const addLog = (msg: string) => {
+    setRuntimeLogs(prev => [...prev.slice(-8), `[${new Date().toLocaleTimeString()}] ${msg}`]);
+  };
+
+  const deductCredit = (amount: number = 1): boolean => {
+    if (credits.available < amount && credits.plan === 'free') {
+      setShowPricing(true);
+      return false;
+    }
+    setCredits(prev => ({ ...prev, available: Math.max(0, prev.available - amount) }));
+    return true;
+  };
 
   const handleGenerate = async () => {
     if (!prompt.trim() && attachments.length === 0 && !projectLink.trim()) return;
-    
+    if (!deductCredit(2)) return;
+
     try {
       setStatus(GenerationStatus.ANALYZING_CONTEXT);
-      if (attachments.length > 0 || projectLink) await new Promise(r => setTimeout(r, 2000));
+      addLog(`Mapeando proposta: Web para Multi-Plataforma...`);
+      await new Promise(r => setTimeout(r, 1500));
       
       setStatus(GenerationStatus.THINKING);
-      const generatedProto = await generatePrototype(prompt, attachments, isSupabaseConnected, projectLink);
+      const generatedProto = await generatePrototype(prompt, attachments, false, projectLink, "");
       setPrototype(generatedProto);
       
       setStatus(GenerationStatus.GENERATING_ASSETS);
-      const icon = await generateAppIcon(generatedProto.name);
-      setAppIcon(icon);
+      const concepts = await generateIconConcepts(generatedProto.name, generatedProto.description);
+      setIconConcepts(concepts);
+      
+      const firstIcon = await generateAppIcon(concepts[0].prompt);
+      setAppIcon(firstIcon);
       
       setStatus(GenerationStatus.SUCCESS);
       const link = await generateLovableLink(generatedProto);
       setLovableLink(link);
+      addLog(`Apps para Android, iOS e Windows prontos para build.`);
     } catch (error) {
       console.error("Generation failed:", error);
       setStatus(GenerationStatus.ERROR);
+      addLog("Erro na síntese Gemini: Verifique sua conexão.");
     }
   };
 
-  const regenerateIcon = async () => {
-    if (!prototype) return;
+  const handleConceptSelect = async (concept: IconConcept) => {
+    if (status === GenerationStatus.GENERATING_ASSETS) return;
+    if (!deductCredit(1)) return;
+
     setStatus(GenerationStatus.GENERATING_ASSETS);
-    const icon = await generateAppIcon(prototype.name);
-    setAppIcon(icon);
-    setStatus(GenerationStatus.SUCCESS);
+    addLog(`Redefinindo identidade visual para: ${concept.style}...`);
+    try {
+      const newIcon = await generateAppIcon(concept.prompt);
+      setAppIcon(newIcon);
+      setStatus(GenerationStatus.SUCCESS);
+      addLog("Assets visuais sincronizados globalmente.");
+    } catch (e) {
+      setStatus(GenerationStatus.ERROR);
+      addLog("Falha ao gerar novos assets.");
+    }
   };
 
-  const buildAPK = async () => {
+  const runBuild = async (type: 'android' | 'ios' | 'windows') => {
     if (!prototype) return;
-    setIsBuildingAPK(true);
+    if (!deductCredit(3)) return;
+
+    setBuildType(type);
+    setIsBuilding(true);
     setBuildProgress(0);
     
     const steps = [
-      { msg: 'Iniciando Compilação APK...', time: 1000 },
-      { msg: 'Processando Manifestos Stitch...', time: 1500 },
-      { msg: 'Otimizando Recursos Lovable...', time: 1200 },
-      { msg: 'Integrando Ícone Adaptativo...', time: 1800 },
-      { msg: 'Assinando Pacote de Depuração...', time: 1000 },
-      { msg: 'APK Gerado com Sucesso!', time: 500 },
+      { msg: `Iniciando transpilação para ${type.toUpperCase()}...`, time: 700 },
+      { msg: 'Convertendo estruturas Web para Native UI...', time: 1100 },
+      { msg: 'Encapsulando Lovable Runtime Engine...', time: 900 },
+      { msg: `Compilando binário .${type === 'android' ? 'apk' : type === 'ios' ? 'ipa' : 'exe'}...`, time: 1600 },
+      { msg: 'Otimizando performance de runtime...', time: 1000 },
+      { msg: 'Processo de build finalizado.', time: 500 },
     ];
 
     for (let i = 0; i < steps.length; i++) {
       setBuildStep(steps[i].msg);
-      const progressPerStep = 100 / steps.length;
-      
-      // Animate progress smoothly
-      const startProgress = i * progressPerStep;
-      const endProgress = (i + 1) * progressPerStep;
-      
+      addLog(steps[i].msg);
       const duration = steps[i].time;
       const startTime = Date.now();
+      const progressPerStep = 100 / steps.length;
+      const startP = i * progressPerStep;
+      const endP = (i + 1) * progressPerStep;
       
       while (Date.now() - startTime < duration) {
         const elapsed = Date.now() - startTime;
-        const current = startProgress + (elapsed / duration) * (endProgress - startProgress);
-        setBuildProgress(current);
+        setBuildProgress(startP + (elapsed / duration) * (endP - startP));
         await new Promise(r => requestAnimationFrame(r));
       }
     }
     
     setBuildProgress(100);
     setTimeout(() => {
-      setIsBuildingAPK(false);
-      alert("Virtual APK Build Complete! The project manifest is now optimized for mobile deployment.");
-    }, 1000);
-  };
-
-  const addAttachment = (e: React.ChangeEvent<HTMLInputElement>, type: 'video' | 'folder') => {
-    const files = e.target.files;
-    if (!files) return;
-
-    const newAttachments: ProjectAttachment[] = Array.from(files).map((file: File) => ({
-      id: Math.random().toString(36).substr(2, 9),
-      name: file.name,
-      type: type === 'video' ? 'video' : 'folder',
-      size: (file.size / 1024 / 1024).toFixed(2) + ' MB'
-    }));
-
-    setAttachments(prev => [...prev, ...newAttachments]);
-  };
-
-  const removeAttachment = (id: string) => {
-    setAttachments(prev => prev.filter(a => a.id !== id));
-  };
-
-  const downloadFile = (content: string, fileName: string, contentType: string) => {
-    const a = document.createElement("a");
-    const file = new Blob([content], { type: contentType });
-    a.href = URL.createObjectURL(file);
-    a.download = fileName;
-    a.click();
-    URL.revokeObjectURL(a.href);
+      setIsBuilding(false);
+      setActiveTab('apk');
+    }, 600);
   };
 
   const downloadPrototype = () => {
     if (!prototype) return;
-    downloadFile(JSON.stringify(prototype, null, 2), `${prototype.name.toLowerCase().replace(/\s+/g, '-')}-stitch-project.json`, 'application/json');
-  };
-
-  const downloadIcon = () => {
-    if (!appIcon) return;
-    const a = document.createElement("a");
-    a.href = appIcon;
-    a.download = `${prototype?.name || 'app'}-icon.png`;
+    const blob = new Blob([JSON.stringify(prototype, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${prototype.name.replace(/\s+/g, '-').toLowerCase()}-blueprint.json`;
     a.click();
+    URL.revokeObjectURL(url);
+    addLog("Blueprint JSON exportado com sucesso.");
   };
 
-  const downloadSQL = () => {
-    if (!prototype?.databaseSchema) return;
-    let sql = `-- Database Schema for ${prototype.name}\n\n`;
-    prototype.databaseSchema.forEach(table => {
-      sql += `CREATE TABLE ${table.name} (\n`;
-      sql += table.columns.map(col => `  ${col.name} ${col.type}${col.isNullable ? '' : ' NOT NULL'}`).join(',\n');
-      sql += `\n);\n\n`;
-    });
-    downloadFile(sql, `${prototype.name.toLowerCase().replace(/\s+/g, '-')}-schema.sql`, 'text/plain');
-  };
+  const PricingModal = () => (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 backdrop-blur-xl bg-black/60 animate-in fade-in zoom-in-95 duration-300">
+      <div className="max-w-5xl w-full bg-slate-900 border border-white/10 rounded-[3.5rem] overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
+        <div className="p-10 border-b border-white/5 flex items-center justify-between bg-slate-900/50">
+           <div>
+             <h2 className="text-4xl font-black tracking-tight">Upgrade para <span className="text-indigo-400">Multi-Build</span></h2>
+             <p className="text-slate-500 mt-2">Gere apps reais para Android, iOS e Windows a partir de qualquer proposta web.</p>
+           </div>
+           <button onClick={() => setShowPricing(false)} className="w-12 h-12 rounded-2xl bg-white/5 flex items-center justify-center hover:bg-white/10 transition-all"><X className="w-6 h-6" /></button>
+        </div>
+        
+        <div className="flex-1 overflow-y-auto p-10 grid grid-cols-1 md:grid-cols-4 gap-6">
+           <div className="p-8 rounded-[2.5rem] border border-white/5 bg-white/[0.02] flex flex-col space-y-6">
+              <div className="space-y-2">
+                <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Free</span>
+                <h3 className="text-3xl font-black">Grátis</h3>
+              </div>
+              <ul className="space-y-4 flex-1 text-xs font-medium text-slate-400">
+                <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500" /> 10 Créditos Diários</li>
+                <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500" /> Preview App Web</li>
+                <li className="flex items-center gap-2 text-slate-600"><X className="w-4 h-4" /> Export APK/iOS/Win</li>
+              </ul>
+              <button className="w-full py-4 rounded-2xl border border-white/10 text-[10px] font-black uppercase tracking-widest opacity-50 cursor-default">Plano Atual</button>
+           </div>
+
+           <div className="p-8 rounded-[2.5rem] border border-indigo-500/20 bg-indigo-500/5 flex flex-col space-y-6">
+              <div className="space-y-2">
+                <span className="text-[10px] font-black uppercase tracking-widest text-indigo-400">Basic</span>
+                <h3 className="text-3xl font-black">R$ 20<span className="text-sm font-medium text-slate-500">/mês</span></h3>
+              </div>
+              <ul className="space-y-4 flex-1 text-xs font-medium text-slate-300">
+                <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-indigo-400" /> 50 Créditos Diários</li>
+                <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-indigo-400" /> Build Android (APK)</li>
+                <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-indigo-400" /> ZIP Context Engine</li>
+              </ul>
+              <button className="w-full py-4 rounded-2xl bg-indigo-600 text-white text-[10px] font-black uppercase tracking-widest hover:bg-indigo-500 transition-all">Ativar Agora</button>
+           </div>
+
+           <div className="p-8 rounded-[2.5rem] border border-pink-500/40 bg-pink-500/10 flex flex-col space-y-6 scale-105 shadow-2xl shadow-pink-500/10">
+              <div className="absolute top-4 right-4 bg-pink-500 text-white text-[8px] font-black px-3 py-1 rounded-full uppercase tracking-widest">Mais Vendido</div>
+              <div className="space-y-2">
+                <span className="text-[10px] font-black uppercase tracking-widest text-pink-400">Developer</span>
+                <h3 className="text-3xl font-black">R$ 100<span className="text-sm font-medium text-slate-500">/mês</span></h3>
+              </div>
+              <ul className="space-y-4 flex-1 text-xs font-medium text-slate-200">
+                <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-pink-400" /> Créditos Ilimitados</li>
+                <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-pink-400" /> Multi-App Build</li>
+                <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-pink-400" /> Lovable Project Sync</li>
+              </ul>
+              <button className="w-full py-4 rounded-2xl bg-pink-600 text-white text-[10px] font-black uppercase tracking-widest hover:bg-pink-500 transition-all">Upgrade Pro</button>
+           </div>
+
+           <div className="p-8 rounded-[2.5rem] border border-amber-500/20 bg-amber-500/5 flex flex-col space-y-6">
+              <div className="space-y-2">
+                <span className="text-[10px] font-black uppercase tracking-widest text-amber-400">Enterprise</span>
+                <h3 className="text-3xl font-black">R$ 200<span className="text-sm font-medium text-slate-500">/mês</span></h3>
+              </div>
+              <ul className="space-y-4 flex-1 text-xs font-medium text-slate-400">
+                <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-amber-500" /> Tudo do Pro</li>
+                <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-amber-500" /> Custom Domain Deploy</li>
+                <li className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-amber-500" /> Suporte 24/7</li>
+              </ul>
+              <button className="w-full py-4 rounded-2xl border border-amber-500/30 text-amber-400 text-[10px] font-black uppercase tracking-widest hover:bg-amber-500/10 transition-all">Contato Vendas</button>
+           </div>
+        </div>
+      </div>
+    </div>
+  );
 
   return (
-    <div className="flex h-screen bg-[#020617] text-slate-100 overflow-hidden font-inter">
-      {/* Background Ambience */}
+    <div className="flex h-screen bg-[#020617] text-slate-100 overflow-hidden font-inter selection:bg-indigo-500/30">
       <div className="absolute top-0 left-0 w-full h-full pointer-events-none opacity-20">
-        <div className="absolute -top-[20%] -left-[10%] w-[50%] h-[50%] bg-indigo-600 rounded-full blur-[150px]" />
-        <div className="absolute -bottom-[20%] -right-[10%] w-[50%] h-[50%] bg-pink-600 rounded-full blur-[150px]" />
+        <div className="absolute -top-[20%] -left-[10%] w-[50%] h-[50%] bg-indigo-600 rounded-full blur-[150px] animate-pulse" />
+        <div className="absolute -bottom-[20%] -right-[10%] w-[50%] h-[50%] bg-pink-600 rounded-full blur-[150px] animate-pulse" style={{ animationDelay: '2s' }} />
       </div>
 
-      {/* Hidden Inputs */}
-      <input type="file" accept="video/*" className="hidden" ref={fileInputRef} onChange={(e) => addAttachment(e, 'video')} />
-      <input type="file" className="hidden" ref={folderInputRef} onChange={(e) => addAttachment(e, 'folder')} {...({ webkitdirectory: "" } as any)} />
+      {showPricing && <PricingModal />}
 
-      {/* Left Sidebar: Context Engine */}
-      <aside className="w-80 border-r border-white/5 bg-slate-950/40 backdrop-blur-xl flex flex-col p-6 space-y-6 z-10">
-        <div className="flex items-center gap-3 mb-2">
+      <aside className="w-80 border-r border-white/5 bg-slate-950/40 backdrop-blur-xl flex flex-col p-6 space-y-6 z-10 overflow-y-auto scrollbar-thin">
+        <div className="flex items-center gap-3">
           <div className="w-10 h-10 bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-500/20">
             <Sparkles className="w-5 h-5 text-white" />
           </div>
           <div>
             <h1 className="font-black text-lg leading-none tracking-tight">STITCH & LOVABLE</h1>
-            <p className="text-[9px] text-indigo-400 font-bold uppercase tracking-widest mt-1">Google Design Engine</p>
+            <p className="text-[9px] text-indigo-400 font-bold uppercase tracking-widest mt-1">Web-to-Native Factory</p>
           </div>
         </div>
 
-        <div className="space-y-5">
+        <div onClick={() => setShowPricing(true)} className="p-4 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-between cursor-pointer hover:bg-white/10 transition-all group">
+           <div className="flex items-center gap-3">
+              <Zap className="w-4 h-4 text-indigo-400" />
+              <div>
+                 <p className="text-[10px] font-black uppercase text-slate-500 tracking-widest">Créditos</p>
+                 <p className="text-xs font-black text-white">{credits.available} <span className="text-slate-600 text-[10px]">restantes</span></p>
+              </div>
+           </div>
+           <Plus className="w-4 h-4 text-slate-600 group-hover:text-white" />
+        </div>
+
+        <div className="space-y-4">
           <div className="space-y-2">
-            <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest px-1">Project Evolution Prompt</label>
+            <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest px-1">Proposta de Transformação</label>
             <textarea
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
-              placeholder="E.g. Add a dark mode dashboard with Material 3 cards..."
-              className="w-full h-32 bg-slate-900/50 border border-white/5 rounded-2xl p-4 text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all resize-none placeholder:text-slate-600"
+              placeholder="Descreva como seu site vira um app mobile..."
+              className="w-full h-24 bg-slate-900/50 border border-white/5 rounded-2xl p-4 text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all resize-none placeholder:text-slate-700 font-medium"
             />
           </div>
 
           <div className="space-y-2">
-            <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest px-1">Project Link (Optional)</label>
-            <div className="relative">
-              <input 
-                type="text" 
-                value={projectLink}
-                onChange={(e) => setProjectLink(e.target.value)}
-                placeholder="lovable.dev/app/..."
-                className="w-full bg-slate-900/50 border border-white/5 rounded-xl p-3 pl-10 text-xs focus:ring-2 focus:ring-indigo-500 outline-none transition-all placeholder:text-slate-700"
-              />
-              <Link2 className="w-4 h-4 text-slate-600 absolute left-3 top-1/2 -translate-y-1/2" />
-            </div>
+             <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest px-1">URL Fonte (Web Site)</label>
+             <div className="relative">
+                <Globe className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-600" />
+                <input 
+                  type="text" 
+                  value={projectLink} 
+                  onChange={e => setProjectLink(e.target.value)}
+                  placeholder="https://seu-site.com"
+                  className="w-full bg-slate-900/50 border border-white/5 rounded-xl pl-10 pr-4 py-3 text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all"
+                />
+             </div>
           </div>
 
-          <div className="space-y-3">
-             <div className="flex items-center justify-between px-1">
-                <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">Context Attachments</label>
-                <span className="text-[10px] text-slate-400">{attachments.length} items</span>
-             </div>
-             <div className="grid grid-cols-2 gap-2">
-                <button onClick={() => folderInputRef.current?.click()} className="flex flex-col items-center justify-center gap-2 p-3 rounded-2xl bg-white/5 border border-white/5 hover:border-indigo-500/40 hover:bg-indigo-500/5 transition-all text-[10px] font-bold">
-                  <FolderOpen className="w-5 h-5 text-blue-400" /> Stitch Folder
-                </button>
-                <button onClick={() => fileInputRef.current?.click()} className="flex flex-col items-center justify-center gap-2 p-3 rounded-2xl bg-white/5 border border-white/5 hover:border-pink-500/40 hover:bg-pink-500/5 transition-all text-[10px] font-bold">
-                  <Video className="w-5 h-5 text-pink-400" /> UI Recording
-                </button>
-             </div>
-
-             {attachments.length > 0 && (
-               <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1 scrollbar-thin">
-                 {attachments.map(att => (
-                   <div key={att.id} className="flex items-center justify-between p-2 rounded-xl bg-indigo-500/5 border border-indigo-500/10 group animate-in fade-in slide-in-from-left-2">
-                      <div className="flex items-center gap-2 overflow-hidden">
-                        {att.type === 'video' ? <Play className="w-3 h-3 text-pink-400" /> : <Files className="w-3 h-3 text-blue-400" />}
-                        <span className="text-[10px] truncate font-mono text-slate-300">{att.name}</span>
-                      </div>
-                      <button onClick={() => removeAttachment(att.id)} className="p-1 hover:text-red-400 transition-all opacity-0 group-hover:opacity-100">
-                        <X className="w-3 h-3" />
-                      </button>
-                   </div>
-                 ))}
-               </div>
-             )}
+          <div className="grid grid-cols-2 gap-2">
+             <button onClick={() => zipInputRef.current?.click()} className="flex flex-col items-center justify-center gap-2 p-3 rounded-2xl bg-white/5 border border-white/5 hover:border-indigo-500/40 hover:bg-indigo-500/5 transition-all text-[9px] font-bold group">
+               <input type="file" accept=".zip" className="hidden" ref={zipInputRef} onChange={e => {
+                  const file = e.target.files?.[0];
+                  if (file) addLog(`ZIP detectado: ${file.name}`);
+               }} />
+               <FileArchive className="w-5 h-5 text-amber-400 group-hover:scale-110 transition-transform" /> Anexar ZIP
+             </button>
+             <button onClick={() => folderInputRef.current?.click()} className="flex flex-col items-center justify-center gap-2 p-3 rounded-2xl bg-white/5 border border-white/5 hover:border-blue-500/40 hover:bg-blue-500/5 transition-all text-[9px] font-bold group">
+               <input type="file" className="hidden" ref={folderInputRef} />
+               <FolderOpen className="w-5 h-5 text-blue-400 group-hover:scale-110 transition-transform" /> Pasta Dev
+             </button>
           </div>
 
           <button
             onClick={handleGenerate}
             disabled={status !== GenerationStatus.IDLE && status !== GenerationStatus.SUCCESS && status !== GenerationStatus.ERROR}
-            className="w-full py-4 bg-gradient-to-r from-indigo-600 to-indigo-500 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-2 hover:translate-y-[-2px] hover:shadow-xl hover:shadow-indigo-600/20 active:translate-y-[0] disabled:opacity-30 disabled:pointer-events-none transition-all"
+            className="w-full py-4 bg-gradient-to-r from-indigo-600 to-indigo-500 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-2 hover:translate-y-[-2px] hover:shadow-xl hover:shadow-indigo-600/20 active:translate-y-[0] disabled:opacity-30 transition-all shadow-lg"
           >
             {status === GenerationStatus.THINKING ? <Cpu className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
-            {attachments.length > 0 || projectLink ? 'Sync & Regenerate' : 'Generate Project'}
+            GERAR APPS (2 <Zap className="w-2.5 h-2.5 inline" />)
           </button>
         </div>
 
         {prototype && (
-          <div className="mt-auto pt-6 border-t border-white/5 space-y-3">
+          <div className="mt-auto pt-6 border-t border-white/5 space-y-4">
              <div className="p-3 rounded-2xl bg-indigo-600/10 border border-indigo-500/20 flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg overflow-hidden shadow-lg border border-white/10">
-                   <img src={appIcon || "https://picsum.photos/64"} className="w-full h-full object-cover" alt="App Icon" />
-                </div>
+                <img src={appIcon || "https://picsum.photos/64"} className="w-10 h-10 rounded-lg object-cover" alt="Icon" />
                 <div className="flex-1 overflow-hidden">
                    <p className="font-bold text-xs truncate text-indigo-100">{prototype.name}</p>
-                   <p className="text-[9px] uppercase font-bold text-indigo-400">Published Node</p>
+                   <p className="text-[9px] uppercase font-bold text-indigo-400">Projeto Ativo</p>
                 </div>
              </div>
+             
+             <button 
+               onClick={() => setActiveTab('preview')}
+               className="w-full py-4 rounded-xl bg-emerald-500 text-slate-950 hover:bg-emerald-400 text-[11px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-3 shadow-lg shadow-emerald-500/20"
+             >
+                <PlayCircle className="w-5 h-5" /> EXECUTAR ENGINE
+             </button>
+
+             <button 
+               onClick={() => runBuild('android')}
+               className="w-full py-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 hover:bg-emerald-500/20 text-[10px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 group"
+             >
+                <Smartphone className="w-4 h-4 group-hover:scale-110 transition-transform" /> GENERATE APK
+             </button>
+
              <div className="grid grid-cols-2 gap-2">
-               <button 
-                 onClick={() => setActiveTab('preview')}
-                 className="flex flex-col items-center justify-center gap-1.5 py-3 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 text-[9px] font-black uppercase tracking-widest transition-all"
-               >
-                 <Smartphone className="w-4 h-4" /> Preview
+               <button onClick={() => setActiveTab('assets')} className="py-2.5 rounded-xl bg-white/5 border border-white/10 text-[9px] font-black uppercase flex items-center justify-center gap-2 hover:bg-white/10 transition-all">
+                 <Palette className="w-3.5 h-3.5" /> Icon Swap
                </button>
-               <button 
-                 onClick={buildAPK}
-                 className="flex flex-col items-center justify-center gap-1.5 py-3 rounded-xl bg-indigo-600 text-white hover:bg-indigo-500 text-[9px] font-black uppercase tracking-widest transition-all shadow-lg shadow-indigo-600/20"
-               >
-                 <Box className="w-4 h-4" /> Build APK
+               <button onClick={() => setActiveTab('apk')} className="py-2.5 rounded-xl bg-indigo-500/20 border border-indigo-500/30 text-indigo-300 text-[9px] font-black uppercase flex items-center justify-center gap-2 hover:bg-indigo-500/30 transition-all">
+                 <Box className="w-3.5 h-3.5" /> Multi-Build
                </button>
              </div>
           </div>
         )}
       </aside>
 
-      {/* Main Content Area */}
-      <main className="flex-1 flex flex-col relative z-0">
-        {/* Modern Tabs */}
-        <div className="h-16 border-b border-white/5 flex items-center px-10 gap-10 bg-slate-950/20 backdrop-blur-sm">
+      <main className="flex-1 flex flex-col relative z-0 bg-slate-950/20">
+        <div className="h-16 border-b border-white/5 flex items-center px-10 gap-8 bg-slate-950/20 backdrop-blur-sm">
            {[
-             { id: 'preview', label: 'Canvas', icon: Smartphone },
-             { id: 'code', label: 'Schema', icon: Code },
-             { id: 'assets', label: 'Resources', icon: Layers },
-             { id: 'deploy', label: 'Cloud Deploy', icon: Globe }
+             { id: 'preview', label: 'Runtime Engine', icon: SmartphoneNfc },
+             { id: 'assets', label: 'Identidade Visual', icon: Palette },
+             { id: 'apk', label: 'Fábrica de Apps', icon: Box },
+             { id: 'code', label: 'Logic Blueprint', icon: Code },
+             { id: 'deploy', label: 'Lovable Cloud', icon: Globe }
            ].map(tab => (
              <button
                key={tab.id}
                onClick={() => setActiveTab(tab.id as any)}
-               className={`flex items-center gap-2 text-[11px] font-black uppercase tracking-widest transition-all relative py-5 ${activeTab === tab.id ? 'text-indigo-400' : 'text-slate-500 hover:text-slate-300'}`}
+               className={`flex items-center gap-2 text-[10px] font-black uppercase tracking-widest transition-all relative py-5 ${activeTab === tab.id ? 'text-indigo-400' : 'text-slate-500 hover:text-slate-300'}`}
              >
-               <tab.icon className="w-4 h-4" />
+               <tab.icon className="w-3.5 h-3.5" />
                {tab.label}
                {activeTab === tab.id && <div className="absolute bottom-0 left-0 right-0 h-1 bg-indigo-500 rounded-t-full shadow-[0_0_15px_rgba(99,102,241,0.6)]" />}
              </button>
            ))}
         </div>
 
-        {/* Dynamic Canvas */}
-        <div className="flex-1 p-10 overflow-hidden relative">
-          {status === GenerationStatus.IDLE && !prototype && (
-             <div className="h-full flex flex-col items-center justify-center text-center space-y-8 animate-in fade-in zoom-in-95 duration-700">
-                <div className="relative">
-                   <div className="absolute inset-0 bg-indigo-500 blur-3xl opacity-20 animate-pulse" />
-                   <div className="w-24 h-24 rounded-[2.5rem] bg-slate-900 border border-white/10 flex items-center justify-center relative">
-                      <Layout className="w-10 h-10 text-indigo-400" />
-                   </div>
-                </div>
-                <div className="max-w-md space-y-3">
-                   <h2 className="text-4xl font-black tracking-tighter leading-tight">Architect Your <span className="text-indigo-400">Stitch</span> Idea</h2>
-                   <p className="text-slate-500 text-sm leading-relaxed">Combine Google's Material design tokens with Lovable's instant cloud deployment. Attach project folders or UI videos to continue where you left off.</p>
-                </div>
-                <div className="flex gap-4">
-                   <div className="px-4 py-2 rounded-full bg-slate-900 border border-white/5 text-[10px] font-bold text-slate-400 flex items-center gap-2">
-                      <ShieldCheck className="w-3.5 h-3.5 text-indigo-500" /> Material 3 Verified
-                   </div>
-                   <div className="px-4 py-2 rounded-full bg-slate-900 border border-white/5 text-[10px] font-bold text-slate-400 flex items-center gap-2">
-                      <Zap className="w-3.5 h-3.5 text-pink-500" /> Lovable Optimized
-                   </div>
-                </div>
-             </div>
-          )}
-
-          {/* APK Build Overlay */}
-          {isBuildingAPK && (
-            <div className="absolute inset-0 z-[60] flex items-center justify-center backdrop-blur-xl bg-slate-950/60">
-               <div className="max-w-md w-full p-12 rounded-[3.5rem] bg-slate-900 border border-white/10 shadow-2xl space-y-8 text-center animate-in zoom-in-95 duration-500">
-                  <div className="relative flex justify-center">
-                    <div className="w-24 h-24 bg-indigo-500/10 rounded-full flex items-center justify-center animate-pulse">
-                      <Package className="w-12 h-12 text-indigo-500" />
-                    </div>
+        <div className="flex-1 p-0 overflow-hidden relative">
+          {!prototype && status === GenerationStatus.IDLE && (
+            <div className="h-full flex flex-col lg:flex-row items-center justify-center gap-8 lg:gap-16 overflow-y-auto lg:overflow-hidden p-6 lg:p-12">
+               {/* Left Content */}
+               <div className="flex-1 max-w-xl space-y-6 text-center lg:text-left animate-in slide-in-from-bottom-10 duration-700">
+                  <div className="space-y-3">
+                     <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 font-bold text-[10px] uppercase tracking-widest mb-4">
+                        <Sparkles className="w-3 h-3" /> AI Native Factory v4.0
+                     </div>
+                     <h1 className="text-4xl lg:text-6xl font-black tracking-tighter leading-[1.1]">
+                        Web to <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-pink-500">Native</span> <br className="hidden lg:block"/> in Seconds.
+                     </h1>
+                     <p className="text-slate-400 text-sm lg:text-base leading-relaxed max-w-lg mx-auto lg:mx-0">
+                        The first intelligent engine that converts Lovable web projects and ZIP archives into production-ready APK, IPA, and EXE binaries.
+                     </p>
                   </div>
-                  <div className="space-y-4">
-                    <h3 className="text-3xl font-black tracking-tight">{buildStep}</h3>
-                    <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
-                      <div 
-                        className="h-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 transition-all duration-300 ease-out"
-                        style={{ width: `${buildProgress}%` }}
-                      />
-                    </div>
-                    <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-500">{Math.round(buildProgress)}% BUNDLING APK</p>
+
+                  {/* Quick Start for Mobile/Tablet convenience */}
+                  <div className="bg-slate-900/50 backdrop-blur-md border border-white/10 p-6 rounded-[2rem] shadow-2xl space-y-4 max-w-md mx-auto lg:mx-0">
+                     <div className="space-y-2 text-left">
+                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Quick Transform</label>
+                        <div className="relative">
+                           <Globe className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                           <input 
+                              type="text" 
+                              value={projectLink}
+                              onChange={e => setProjectLink(e.target.value)}
+                              placeholder="Paste project URL..." 
+                              className="w-full bg-black/40 border border-white/10 rounded-xl pl-11 pr-4 py-4 text-sm focus:ring-2 focus:ring-indigo-500 transition-all outline-none text-white"
+                           />
+                        </div>
+                     </div>
+                     <button 
+                        onClick={handleGenerate}
+                        className="w-full py-4 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-2 transition-all shadow-lg shadow-indigo-600/20"
+                     >
+                        <Zap className="w-4 h-4 fill-current" /> Start Engine
+                     </button>
+                  </div>
+
+                  <div className="flex flex-wrap justify-center lg:justify-start gap-4 text-[10px] font-bold text-slate-500 uppercase tracking-widest">
+                     <span className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5"><CheckCircle2 className="w-3 h-3 text-emerald-500" /> Android 14</span>
+                     <span className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5"><CheckCircle2 className="w-3 h-3 text-blue-500" /> iOS 17</span>
+                     <span className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5"><CheckCircle2 className="w-3 h-3 text-indigo-500" /> Windows 11</span>
+                  </div>
+               </div>
+
+               {/* Right Visuals - Phone & Tablet Composition */}
+               <div className="flex-1 relative w-full max-w-lg lg:h-auto h-[350px] flex items-center justify-center animate-in zoom-in-95 duration-1000 delay-200">
+                  <div className="absolute inset-0 bg-gradient-to-tr from-indigo-600/20 to-pink-600/20 blur-[100px] rounded-full pointer-events-none" />
+                  
+                  {/* Floating Tablet (Behind) */}
+                  <div className="absolute right-0 lg:-right-8 top-1/2 -translate-y-1/2 w-[65%] aspect-[4/3] bg-slate-900 border-[6px] border-slate-800 rounded-[2rem] shadow-2xl rotate-6 opacity-60 scale-90 flex flex-col overflow-hidden pointer-events-none">
+                     <div className="h-6 bg-slate-800 w-full flex items-center px-4 gap-1">
+                        <div className="w-1.5 h-1.5 rounded-full bg-red-500/50" />
+                        <div className="w-1.5 h-1.5 rounded-full bg-yellow-500/50" />
+                     </div>
+                     <div className="flex-1 bg-slate-950 p-4 grid grid-cols-2 gap-4 opacity-50">
+                        <div className="rounded-xl bg-white/5 h-32" />
+                        <div className="rounded-xl bg-white/5 h-32" />
+                        <div className="rounded-xl bg-white/5 h-full col-span-2" />
+                     </div>
+                  </div>
+
+                  {/* Floating Phone (Front) */}
+                  <div className="relative z-10 w-[240px] h-[500px] bg-black rounded-[3rem] border-[8px] border-slate-800 shadow-2xl shadow-black/50 overflow-hidden flex flex-col">
+                     {/* Dynamic Island */}
+                     <div className="absolute top-2 left-1/2 -translate-x-1/2 w-20 h-6 bg-black rounded-full z-20 flex items-center justify-center gap-2">
+                        <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+                        <div className="w-6 h-1 rounded-full bg-slate-800" />
+                     </div>
+                     
+                     {/* Screen UI Skeleton */}
+                     <div className="flex-1 bg-slate-950 pt-10 pb-6 px-4 space-y-4">
+                        <div className="flex items-center justify-between mb-4">
+                           <div className="w-6 h-6 rounded-full bg-white/10" />
+                           <div className="w-20 h-3 rounded-full bg-white/10" />
+                           <div className="w-6 h-6 rounded-full bg-white/10" />
+                        </div>
+                        
+                        <div className="h-32 rounded-3xl bg-gradient-to-br from-indigo-500/20 to-purple-500/20 border border-white/5 p-4 flex flex-col justify-end">
+                           <div className="w-10 h-10 rounded-2xl bg-indigo-500 flex items-center justify-center mb-auto shadow-lg shadow-indigo-500/30">
+                              <Smartphone className="w-5 h-5 text-white" />
+                           </div>
+                           <div className="w-24 h-3 rounded-full bg-white/10 mb-2" />
+                           <div className="w-16 h-1.5 rounded-full bg-white/5" />
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2">
+                           <div className="h-20 rounded-2xl bg-white/5" />
+                           <div className="h-20 rounded-2xl bg-white/5" />
+                        </div>
+
+                        <div className="space-y-2">
+                           {[1, 2, 3].map(i => (
+                              <div key={i} className="h-12 rounded-2xl bg-white/5 border border-white/[0.02] flex items-center px-3 gap-3">
+                                 <div className="w-8 h-8 rounded-xl bg-white/5" />
+                                 <div className="flex-1 space-y-1.5">
+                                    <div className="w-full h-1.5 rounded-full bg-white/10" />
+                                    <div className="w-1/2 h-1.5 rounded-full bg-white/5" />
+                                 </div>
+                              </div>
+                           ))}
+                        </div>
+                     </div>
+
+                     {/* Tab Bar */}
+                     <div className="h-14 border-t border-white/5 flex items-center justify-around px-2">
+                        <div className="w-8 h-8 rounded-xl bg-indigo-500/20 flex items-center justify-center"><Box className="w-4 h-4 text-indigo-400" /></div>
+                        <div className="w-8 h-8 flex items-center justify-center"><Search className="w-4 h-4 text-slate-600" /></div>
+                        <div className="w-8 h-8 flex items-center justify-center"><User className="w-4 h-4 text-slate-600" /></div>
+                     </div>
                   </div>
                </div>
             </div>
           )}
 
-          {/* Loading Overlays */}
-          {(status === GenerationStatus.THINKING || status === GenerationStatus.ANALYZING_CONTEXT || status === GenerationStatus.GENERATING_ASSETS) && (
-             <div className="absolute inset-0 z-50 flex items-center justify-center backdrop-blur-sm">
-                <div className="bg-slate-900/80 border border-white/10 p-10 rounded-[3rem] text-center space-y-6 max-w-sm shadow-2xl">
-                   <div className="flex justify-center">
-                      <div className="w-20 h-20 relative">
-                         <div className="absolute inset-0 bg-indigo-500 animate-ping rounded-full opacity-20" />
-                         <div className="absolute inset-0 flex items-center justify-center">
-                            <Cpu className="w-12 h-12 text-indigo-500 animate-pulse" />
-                         </div>
-                      </div>
-                   </div>
-                   <div className="space-y-2">
-                      <h3 className="text-2xl font-black tracking-tight">
-                         {status === GenerationStatus.ANALYZING_CONTEXT && "Parsing Stitch Files..."}
-                         {status === GenerationStatus.THINKING && "Deep Thinking..."}
-                         {status === GenerationStatus.GENERATING_ASSETS && "Optimizing UI Nodes..."}
-                      </h3>
-                      <p className="text-xs text-slate-500 font-bold uppercase tracking-widest">Multi-Agent Protocol Active</p>
-                   </div>
-                   <div className="w-full h-1 bg-slate-800 rounded-full overflow-hidden">
-                      <div className="h-full bg-gradient-to-r from-indigo-500 to-pink-500 animate-[loading_2s_ease-in-out_infinite]" />
-                   </div>
-                </div>
-             </div>
+          {isBuilding && (
+            <div className="absolute inset-0 z-[60] flex items-center justify-center backdrop-blur-xl bg-slate-950/80">
+               <div className="max-w-md w-full p-12 rounded-[4rem] bg-slate-900 border border-white/10 shadow-2xl space-y-8 text-center animate-in zoom-in-95 duration-500">
+                  <div className="w-20 h-20 bg-indigo-500/10 rounded-full flex items-center justify-center mx-auto mb-4 animate-spin-slow">
+                     {buildType === 'android' ? <Smartphone className="w-10 h-10 text-emerald-500" /> : buildType === 'ios' ? <Apple className="w-10 h-10 text-blue-500" /> : <Monitor className="w-10 h-10 text-indigo-500" />}
+                  </div>
+                  <div className="space-y-4">
+                    <h3 className="text-2xl font-black tracking-tight">{buildStep}</h3>
+                    <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                      <div className="h-full bg-gradient-to-r from-indigo-500 to-pink-500 transition-all duration-300" style={{ width: `${buildProgress}%` }} />
+                    </div>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">{Math.round(buildProgress)}% OTIMIZADO</p>
+                  </div>
+               </div>
+            </div>
           )}
 
           {prototype && (
-            <div className="h-full animate-in fade-in zoom-in-95 duration-1000">
+            <div className="h-full animate-in fade-in zoom-in-95 duration-700">
               {activeTab === 'preview' && (
-                <div className="flex h-full items-center justify-center gap-20 relative">
-                  <div className="flex-1 max-w-lg space-y-10">
-                     <div className="space-y-4">
+                <div className="flex h-full items-center justify-center gap-12 relative">
+                  <div className="flex-1 max-w-md space-y-6">
+                     <div className="space-y-3">
                         <div className="flex items-center gap-2">
-                           <div className="px-3 py-1 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-[10px] font-black text-indigo-400 uppercase tracking-widest">STITCH CORE v4.2</div>
-                           {(attachments.length > 0 || projectLink) && <div className="px-3 py-1 rounded-lg bg-pink-500/10 border border-pink-500/20 text-[10px] font-black text-pink-400 uppercase tracking-widest">Context Injected</div>}
+                           <div className="px-3 py-1 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-[10px] font-black text-indigo-400 uppercase tracking-widest">STITCH ENGINE v4.5</div>
+                           <div className="px-3 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-[10px] font-black text-emerald-500 uppercase tracking-widest">ACTIVE RUNTIME</div>
                         </div>
-                        <h2 className="text-6xl font-black tracking-tighter leading-none text-white">{prototype.name}</h2>
-                        <p className="text-slate-400 text-xl leading-relaxed font-medium">{prototype.description}</p>
+                        <h2 className="text-5xl font-black tracking-tighter leading-none text-white">{prototype.name}</h2>
+                        <p className="text-slate-400 text-sm leading-relaxed">{prototype.description}</p>
                      </div>
 
-                     <div className="grid grid-cols-2 gap-4">
-                        {prototype.screens.map(screen => (
-                          <div key={screen.id} className="p-5 rounded-3xl bg-white/[0.03] border border-white/5 flex items-center justify-between hover:border-indigo-500/30 hover:bg-white/[0.06] transition-all cursor-pointer group">
-                             <div className="flex items-center gap-4">
-                                <div className="w-3 h-3 rounded-full bg-indigo-500 shadow-[0_0_12px_rgba(99,102,241,0.6)] group-hover:scale-125 transition-transform" />
-                                <span className="text-sm font-bold tracking-tight text-slate-200">{screen.name}</span>
-                             </div>
-                             <ChevronRight className="w-4 h-4 text-slate-600 group-hover:text-slate-300 transition-colors" />
-                          </div>
-                        ))}
-                     </div>
-
-                     <div className="pt-8 flex gap-5">
-                        <button onClick={downloadPrototype} className="px-8 py-5 rounded-3xl bg-white text-slate-950 font-black text-xs uppercase tracking-widest flex items-center gap-3 hover:bg-slate-200 transition-all shadow-xl shadow-white/5">
-                           <Download className="w-5 h-5" /> Export Manifest
-                        </button>
-                        <button onClick={buildAPK} className="px-8 py-5 rounded-3xl bg-indigo-600 text-white font-black text-xs uppercase tracking-widest flex items-center gap-3 hover:bg-indigo-500 transition-all shadow-xl shadow-indigo-600/20">
-                           <Box className="w-5 h-5" /> Build APK Package
+                     <div className="space-y-6">
+                        <div className="p-6 rounded-3xl bg-white/[0.03] border border-white/5 space-y-3">
+                           <div className="flex items-center gap-2">
+                              <TerminalSquare className="w-4 h-4 text-indigo-400" />
+                              <span className="text-[9px] font-black uppercase text-slate-500 tracking-widest">Console de Transformação</span>
+                           </div>
+                           <div className="space-y-1 max-h-32 overflow-y-auto scrollbar-thin pr-2">
+                              {runtimeLogs.map((log, i) => (
+                                <p key={i} className="text-[10px] font-mono text-indigo-300/80 truncate leading-relaxed animate-in slide-in-from-left-2">{log}</p>
+                              ))}
+                           </div>
+                        </div>
+                        <button onClick={() => addLog("Reiniciando engine de renderização nativa...")} className="px-8 py-5 rounded-3xl bg-indigo-600 text-white font-black text-xs uppercase tracking-widest flex items-center gap-4 hover:bg-indigo-500 transition-all shadow-xl active:scale-95">
+                           <PlayCircle className="w-6 h-6" /> REBOOT BLUEPRINT
                         </button>
                      </div>
                   </div>
-                  
-                  {/* Phone Frame */}
-                  <div className="relative group scale-110">
-                    <div className="absolute -inset-4 bg-gradient-to-r from-indigo-500 to-pink-500 rounded-[4.5rem] blur-3xl opacity-10 group-hover:opacity-20 transition duration-1000"></div>
+                  <div className="relative scale-90">
+                    <div className="absolute -inset-16 bg-gradient-to-r from-indigo-500/10 to-pink-500/10 rounded-[5rem] blur-[120px]"></div>
                     <MobilePreview prototype={prototype} />
-                    {/* Floating Preview Tools */}
-                    <div className="absolute top-1/2 -right-16 -translate-y-1/2 flex flex-col gap-4">
-                       <button className="w-12 h-12 bg-white/5 border border-white/10 rounded-2xl flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/10 transition-all group/tool">
-                          <Maximize2 className="w-5 h-5 group-hover/tool:scale-110" />
-                       </button>
-                       <button 
-                        onClick={regenerateIcon}
-                        className="w-12 h-12 bg-white/5 border border-white/10 rounded-2xl flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/10 transition-all group/tool"
-                       >
-                          <RefreshCw className="w-5 h-5 group-hover/tool:rotate-180 transition-transform duration-500" />
-                       </button>
+                    <div className="absolute -right-12 top-1/2 -translate-y-1/2 flex flex-col gap-3">
+                       <button className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-slate-400 hover:text-white transition-all backdrop-blur-md shadow-xl"><Maximize2 className="w-4 h-4" /></button>
+                       <button className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-slate-400 hover:text-white transition-all backdrop-blur-md shadow-xl"><RefreshCw className="w-4 h-4" /></button>
                     </div>
                   </div>
                 </div>
               )}
 
+              {activeTab === 'assets' && (
+                <div className="h-full overflow-y-auto pr-4 scrollbar-thin space-y-10 pb-20">
+                   <div className="flex items-center justify-between">
+                      <h2 className="text-4xl font-black tracking-tight">Assets <span className="text-indigo-400">Cross-Platform</span></h2>
+                      <button onClick={handleGenerate} className="px-6 py-3 bg-white/5 border border-white/10 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center gap-3 hover:bg-white/10 transition-all">
+                        <Lightbulb className="w-4 h-4" /> Recriar Brand Assets
+                      </button>
+                   </div>
+
+                   <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                      {iconConcepts.map((concept) => (
+                        <div key={concept.id} onClick={() => handleConceptSelect(concept)} className="group bg-slate-900/40 border p-6 rounded-[2.5rem] transition-all cursor-pointer relative overflow-hidden hover:border-indigo-500/40">
+                           <div className="flex flex-col h-full space-y-4 relative z-10">
+                              <div className="w-12 h-12 rounded-2xl bg-indigo-500/10 flex items-center justify-center text-indigo-400"><Palette className="w-6 h-6" /></div>
+                              <h3 className="font-black text-sm uppercase tracking-tight">{concept.style}</h3>
+                              <p className="text-[10px] text-slate-500 font-medium leading-relaxed flex-1">{concept.description}</p>
+                              <div className="pt-4 flex items-center gap-2 text-[9px] font-black text-indigo-400 uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-opacity">Aplicar aos Apps <ChevronRight className="w-3 h-3" /></div>
+                           </div>
+                        </div>
+                      ))}
+                   </div>
+
+                   <div className="p-12 rounded-[4rem] bg-slate-900/40 border border-white/5 flex items-center gap-16 relative group overflow-hidden">
+                      <div className="absolute inset-0 bg-indigo-500/5 opacity-0 group-hover:opacity-100 transition-opacity" />
+                      <div className="w-64 h-64 rounded-[4rem] overflow-hidden shadow-2xl border-8 border-white/5 shrink-0 relative z-10">
+                         {status === GenerationStatus.GENERATING_ASSETS && <div className="absolute inset-0 bg-black/60 flex items-center justify-center backdrop-blur-sm z-10"><RefreshCw className="w-12 h-12 text-indigo-500 animate-spin" /></div>}
+                         <img src={appIcon || "https://picsum.photos/512"} className="w-full h-full object-cover" alt="App Icon" />
+                      </div>
+                      <div className="space-y-8 relative z-10">
+                         <h3 className="text-4xl font-black tracking-tight leading-tight">Identidade <br/><span className="text-indigo-400">Sincronizada</span></h3>
+                         <p className="text-slate-400 max-w-md">Este ícone será injetado nos bundles APK (Android), IPA (iOS) e EXE (Windows) para garantir consistência em todas as Stores.</p>
+                         <div className="flex gap-4">
+                            <button className="px-8 py-4 bg-indigo-600 rounded-3xl font-black text-[10px] uppercase tracking-widest flex items-center gap-3 hover:bg-indigo-500 shadow-xl shadow-indigo-600/20 transition-all">
+                               <Download className="w-4 h-4" /> Exportar Brand Kit
+                            </button>
+                         </div>
+                      </div>
+                   </div>
+                </div>
+              )}
+
+              {activeTab === 'apk' && (
+                <div className="h-full flex flex-col items-center justify-center space-y-12">
+                   <div className="text-center space-y-4">
+                      <h2 className="text-5xl font-black tracking-tighter">Exportação <span className="text-indigo-400">Nativa</span></h2>
+                      <p className="text-slate-500">Transforme sua visão web em binários assinados e prontos para teste real.</p>
+                   </div>
+
+                   <div className="grid grid-cols-1 md:grid-cols-3 gap-8 w-full max-w-6xl">
+                      {/* Android */}
+                      <div className="p-10 rounded-[3.5rem] bg-slate-900 border border-emerald-500/20 shadow-2xl space-y-8 group hover:border-emerald-500/40 transition-all hover:translate-y-[-4px]">
+                         <div className="flex items-center justify-between">
+                            <Smartphone className="w-8 h-8 text-emerald-500" />
+                            <span className="text-[10px] font-black text-emerald-500 uppercase tracking-widest">APK STABLE</span>
+                         </div>
+                         <h3 className="text-2xl font-black">Android App</h3>
+                         <p className="text-slate-500 text-sm">Empacotamento completo para Android 12+. Inclui assets adaptativos Stitch.</p>
+                         <button onClick={() => runBuild('android')} className="w-full py-5 rounded-[2rem] bg-emerald-600 text-slate-950 font-black text-xs uppercase flex items-center justify-center gap-3 shadow-lg shadow-emerald-600/20 hover:bg-emerald-500 transition-all">
+                            <HardDriveDownload className="w-5 h-5" /> Build APK (3 <Zap className="w-2.5 h-2.5 inline" />)
+                         </button>
+                      </div>
+
+                      {/* iOS */}
+                      <div className="p-10 rounded-[3.5rem] bg-slate-900 border border-blue-500/20 shadow-2xl space-y-8 group hover:border-blue-500/40 transition-all hover:translate-y-[-4px]">
+                         <div className="flex items-center justify-between">
+                            <Apple className="w-8 h-8 text-blue-500" />
+                            <span className="text-[10px] font-black text-blue-500 uppercase tracking-widest">IPA PRODUCTION</span>
+                         </div>
+                         <h3 className="text-2xl font-black">iOS Apple</h3>
+                         <p className="text-slate-500 text-sm">Bundle IPA para TestFlight e App Store. Retina 3x e Bitcode ativo.</p>
+                         <button onClick={() => runBuild('ios')} className="w-full py-5 rounded-[2rem] bg-blue-600 text-white font-black text-xs uppercase flex items-center justify-center gap-3 shadow-lg shadow-blue-600/20 hover:bg-blue-500 transition-all">
+                            <HardDriveDownload className="w-5 h-5" /> Build IPA (3 <Zap className="w-2.5 h-2.5 inline" />)
+                         </button>
+                      </div>
+
+                      {/* Windows */}
+                      <div className="p-10 rounded-[3.5rem] bg-slate-900 border border-indigo-500/20 shadow-2xl space-y-8 group hover:border-indigo-500/40 transition-all hover:translate-y-[-4px]">
+                         <div className="flex items-center justify-between">
+                            <Monitor className="w-8 h-8 text-indigo-400" />
+                            <span className="text-[10px] font-black text-indigo-400 uppercase tracking-widest">EXE DESKTOP</span>
+                         </div>
+                         <h3 className="text-2xl font-black">Windows Desktop</h3>
+                         <p className="text-slate-500 text-sm">Binário .exe nativo para Windows 10/11. Otimizado para arquitetura x64.</p>
+                         <button onClick={() => runBuild('windows')} className="w-full py-5 rounded-[2rem] bg-indigo-600 text-white font-black text-xs uppercase flex items-center justify-center gap-3 shadow-lg shadow-indigo-600/20 hover:bg-indigo-500 transition-all">
+                            <HardDriveDownload className="w-5 h-5" /> Build EXE (3 <Zap className="w-2.5 h-2.5 inline" />)
+                         </button>
+                      </div>
+                   </div>
+                </div>
+              )}
+
               {activeTab === 'code' && (
-                <div className="h-full bg-slate-950/80 rounded-[3rem] border border-white/5 p-8 overflow-hidden flex flex-col shadow-2xl">
-                  <div className="flex items-center justify-between mb-6 px-4">
+                <div className="h-full bg-slate-950/80 rounded-[3.5rem] border border-white/5 p-10 flex flex-col shadow-2xl relative overflow-hidden">
+                  <div className="flex items-center justify-between mb-8 px-4 relative z-10">
                     <div className="flex items-center gap-4">
-                       <FileCode className="w-5 h-5 text-indigo-400" />
-                       <span className="text-xs font-black uppercase tracking-widest text-slate-400">prototype-bundle.stitch</span>
+                       <FileCode className="w-6 h-6 text-indigo-400" />
+                       <span className="font-black text-xs uppercase tracking-widest text-slate-400">multi-app-blueprint.json</span>
                     </div>
-                    <button 
-                      onClick={downloadPrototype}
-                      className="flex items-center gap-2 px-4 py-2 bg-white/5 hover:bg-white/10 rounded-xl text-[10px] font-black uppercase transition-all"
-                    >
-                      <Download className="w-3 h-3" /> Save JSON
-                    </button>
+                    <button onClick={downloadPrototype} className="px-6 py-3 bg-white/5 hover:bg-white/10 rounded-2xl text-[10px] font-black uppercase flex items-center gap-3 transition-all"><Download className="w-4 h-4" /> Exportar Lógica</button>
                   </div>
-                  <pre className="flex-1 overflow-auto jetbrains-mono text-xs text-indigo-300 bg-black/40 p-10 rounded-[2rem] scrollbar-thin scrollbar-thumb-white/10 selection:bg-indigo-500/30">
+                  <pre className="flex-1 overflow-auto jetbrains-mono text-xs text-indigo-300/90 bg-black/40 p-12 rounded-[2.5rem] scrollbar-thin relative z-10">
                     {JSON.stringify(prototype, null, 2)}
                   </pre>
                 </div>
               )}
 
-              {activeTab === 'assets' && (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-8 h-full overflow-y-auto pr-4 scrollbar-hide">
-                   <div className="p-10 rounded-[3rem] bg-slate-900/50 border border-white/5 space-y-8 flex flex-col items-center text-center">
-                      <h4 className="font-black text-[11px] text-slate-500 uppercase tracking-widest">Iconography Node</h4>
-                      <div className="relative group/icon">
-                        <div className="w-48 h-48 rounded-[3rem] overflow-hidden shadow-2xl border-4 border-white/5">
-                           <img src={appIcon || "https://picsum.photos/512"} className="w-full h-full object-cover" alt="App Icon" />
-                        </div>
-                        <button 
-                          onClick={regenerateIcon}
-                          className="absolute -top-3 -right-3 w-10 h-10 bg-indigo-600 rounded-full flex items-center justify-center text-white shadow-lg hover:bg-indigo-500 transition-all opacity-0 group-hover/icon:opacity-100"
-                        >
-                          <RefreshCw className="w-4 h-4" />
-                        </button>
-                      </div>
-                      <div className="space-y-4 w-full">
-                         <button 
-                           onClick={downloadIcon}
-                           className="w-full py-4 bg-white/5 hover:bg-white/10 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2"
-                         >
-                           <FileDown className="w-4 h-4" /> Download Adaptive PNG
-                         </button>
-                         <button 
-                           onClick={buildAPK}
-                           className="w-full py-4 bg-indigo-600/10 border border-indigo-600/20 text-indigo-400 hover:bg-indigo-600/20 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2"
-                         >
-                           <Package className="w-4 h-4" /> Bake into APK
-                         </button>
-                      </div>
-                   </div>
-                   
-                   <div className="md:col-span-2 space-y-8">
-                      <div className="p-10 rounded-[3rem] bg-slate-900/50 border border-white/5 space-y-8">
-                        <h4 className="font-black text-[11px] text-slate-500 uppercase tracking-widest">Material 3 Color Profiles</h4>
-                        <div className="grid grid-cols-3 gap-6">
-                           {[
-                             { name: 'Primary Core', color: prototype.theme.primary },
-                             { name: 'Secondary Flow', color: prototype.theme.secondary },
-                             { name: 'Tertiary Spark', color: prototype.theme.accent }
-                           ].map(c => (
-                             <div key={c.name} className="space-y-4">
-                                <div className="h-24 rounded-[1.5rem] shadow-inner border border-white/5 group relative overflow-hidden" style={{ backgroundColor: c.color }}>
-                                   <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-[10px] font-bold">Copy Hex</div>
-                                </div>
-                                <div className="text-center">
-                                   <p className="text-[10px] font-black uppercase text-slate-500 tracking-wider">{c.name}</p>
-                                   <p className="text-xs font-mono font-bold text-slate-300 mt-1 uppercase">{c.color}</p>
-                                </div>
-                             </div>
-                           ))}
-                        </div>
-                      </div>
-
-                      {prototype.databaseSchema && (
-                        <div className="p-10 rounded-[3rem] bg-emerald-500/5 border border-emerald-500/10 space-y-8">
-                          <div className="flex items-center justify-between">
-                            <h4 className="font-black text-[11px] text-emerald-500 uppercase tracking-widest flex items-center gap-3">
-                               <Database className="w-4 h-4" /> Supabase Continuity Map
-                            </h4>
-                            <button 
-                              onClick={downloadSQL}
-                              className="px-4 py-2 bg-emerald-500 text-white rounded-xl text-[10px] font-black uppercase flex items-center gap-2 hover:bg-emerald-400 transition-all"
-                            >
-                              <Download className="w-3.5 h-3.5" /> Download SQL
-                            </button>
-                          </div>
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                             {prototype.databaseSchema.map(table => (
-                               <div key={table.name} className="p-6 rounded-[2rem] bg-black/40 border border-white/5 hover:border-emerald-500/30 transition-all">
-                                  <p className="text-sm font-black text-white mb-4 flex items-center gap-2">
-                                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                                     {table.name}
-                                  </p>
-                                  <div className="space-y-2">
-                                     {table.columns.map(col => (
-                                       <div key={col.name} className="flex justify-between text-[10px] font-mono">
-                                          <span className="text-slate-400">{col.name}</span>
-                                          <span className="text-emerald-500/80 font-bold uppercase">{col.type}</span>
-                                       </div>
-                                     ))}
-                                  </div>
-                               </div>
-                             ))}
-                          </div>
-                        </div>
-                      )}
-                   </div>
-                </div>
-              )}
-
               {activeTab === 'deploy' && (
-                <div className="max-w-4xl mx-auto h-full overflow-y-auto space-y-10 pb-20 scrollbar-hide">
-                   <div className="text-center space-y-4 py-6">
-                      <h2 className="text-5xl font-black tracking-tighter">Ready for <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-pink-500">Cloud Orbit</span></h2>
-                      <p className="text-slate-500 font-medium">Your Stitch design is synced and published to the Lovable infrastructure.</p>
+                <div className="max-w-4xl mx-auto h-full overflow-y-auto space-y-12 pb-20 scrollbar-hide">
+                   <div className="text-center space-y-4 py-8">
+                      <h2 className="text-6xl font-black tracking-tighter">Sync com <span className="text-indigo-400">Cloud</span></h2>
+                      <p className="text-slate-500 text-lg">Hospede e gerencie sua proposta via infraestrutura Lovable.</p>
                    </div>
-
                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                      {/* Lovable Direct Link */}
-                      <div className="bg-slate-900/50 p-10 rounded-[3.5rem] border border-pink-500/20 space-y-8 relative overflow-hidden group hover:border-pink-500/40 transition-all">
-                         <div className="absolute -top-10 -right-10 opacity-5 group-hover:opacity-10 transition-all rotate-12">
-                            <Zap className="w-48 h-48 text-pink-500" />
-                         </div>
+                      <div className="bg-slate-900/60 p-12 rounded-[4rem] border border-pink-500/20 space-y-8 relative group overflow-hidden">
                          <div className="flex items-center gap-5">
-                            <div className="w-16 h-16 bg-gradient-to-tr from-pink-500 to-indigo-600 rounded-[1.5rem] flex items-center justify-center shadow-2xl shadow-pink-500/20">
-                               <Zap className="w-8 h-8 text-white" />
+                            <div className="w-16 h-16 bg-pink-600 rounded-[1.5rem] flex items-center justify-center shadow-2xl relative z-10">
+                               <ExternalLink className="w-8 h-8 text-white" />
                             </div>
-                            <div>
-                               <h3 className="font-black text-2xl tracking-tight">Lovable Live</h3>
-                               <p className="text-[10px] text-pink-400 font-bold uppercase tracking-widest">Instant Deployment</p>
-                            </div>
+                            <h3 className="font-black text-3xl tracking-tight relative z-10">Lovable Live</h3>
                          </div>
-                         
-                         <div className="space-y-6 relative z-10">
-                            <p className="text-slate-400 text-sm leading-relaxed">This URL hosts your fully functional prototype including the auto-generated backend and UI components.</p>
-                            {lovableLink ? (
-                              <div className="space-y-5">
-                                 <div className="p-5 rounded-[1.5rem] bg-pink-500/5 border border-pink-500/10 flex items-center justify-between group/link cursor-pointer hover:bg-pink-500/10 transition-all">
-                                    <span className="text-xs font-mono text-pink-300 truncate mr-6">{lovableLink}</span>
-                                    <a href={lovableLink} target="_blank" rel="noreferrer" className="shrink-0 p-3 bg-pink-600 rounded-xl text-white hover:bg-pink-500 transition-all shadow-lg shadow-pink-600/20">
-                                       <ExternalLink className="w-4 h-4" />
-                                    </a>
-                                 </div>
-                                 <div className="flex items-center gap-3 text-emerald-400 font-black text-xs uppercase tracking-tighter">
-                                   <CheckCircle2 className="w-5 h-5" /> All Microservices Synced
-                                 </div>
-                              </div>
-                            ) : (
-                              <div className="h-32 flex items-center justify-center text-slate-700 font-black italic">Awaiting Primary Build...</div>
-                            )}
-                         </div>
+                         <p className="text-slate-400 text-sm leading-relaxed relative z-10">Ambiente web instantâneo sincronizado com sua proposta multi-plataforma.</p>
+                         {lovableLink && (
+                           <div className="p-6 rounded-[2rem] bg-pink-500/10 border border-pink-500/20 flex items-center justify-between group/link cursor-pointer hover:bg-pink-500/20 transition-all relative z-10">
+                              <span className="text-xs font-mono text-pink-300 truncate mr-6">{lovableLink}</span>
+                              <a href={lovableLink} target="_blank" rel="noreferrer" className="shrink-0 p-4 bg-pink-600 rounded-2xl text-white shadow-lg"><ExternalLink className="w-5 h-5" /></a>
+                           </div>
+                         )}
                       </div>
-
-                      {/* GitHub VCS */}
-                      <div className="bg-slate-900/50 p-10 rounded-[3.5rem] border border-white/5 space-y-8 relative overflow-hidden group hover:border-indigo-500/20 transition-all">
+                      <div className="bg-slate-900/60 p-12 rounded-[4rem] border border-indigo-500/20 space-y-8 relative group">
                          <div className="flex items-center gap-5">
                             <div className="w-16 h-16 bg-white rounded-[1.5rem] flex items-center justify-center shadow-xl">
-                               <Github className="w-8 h-8 text-black" />
+                               <ShieldCheck className="w-8 h-8 text-indigo-600" />
                             </div>
-                            <div>
-                               <h3 className="font-black text-2xl tracking-tight">GitHub Sync</h3>
-                               <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Source Continuity</p>
-                            </div>
+                            <h3 className="font-black text-3xl tracking-tight">Enterprise SSL</h3>
                          </div>
-
-                         <div className="space-y-6">
-                            <p className="text-slate-400 text-sm leading-relaxed">Archive this version's manifest and assets to your selected repository for permanent storage.</p>
-                            <button className="w-full py-5 bg-white text-slate-950 rounded-[1.5rem] font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3 hover:bg-slate-200 transition-all shadow-xl shadow-white/5">
-                               Push to main
-                            </button>
-                         </div>
-                      </div>
-                   </div>
-
-                   {/* Continuity Logs */}
-                   <div className="bg-slate-900/30 rounded-[3rem] border border-white/5 overflow-hidden shadow-2xl backdrop-blur-md">
-                      <div className="p-8 border-b border-white/5 flex items-center justify-between">
-                         <h3 className="font-black text-xl tracking-tight">Sync History</h3>
-                         <div className="flex gap-2">
-                           <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
-                           <div className="w-2.5 h-2.5 rounded-full bg-slate-800" />
-                         </div>
-                      </div>
-                      <div className="overflow-x-auto">
-                         <table className="w-full text-left text-sm">
-                            <thead className="text-[10px] text-slate-500 uppercase tracking-widest bg-white/5">
-                               <tr>
-                                  <th className="p-6 font-black">Service Node</th>
-                                  <th className="p-6 font-black">Status</th>
-                                  <th className="p-6 font-black">Protocol ID</th>
-                                  <th className="p-6 font-black">Continuity State</th>
-                               </tr>
-                            </thead>
-                            <tbody className="divide-y divide-white/5">
-                               {lovableLink && (
-                                 <tr className="hover:bg-white/[0.03] transition-colors">
-                                    <td className="p-6 flex items-center gap-4">
-                                       <div className="w-3 h-3 rounded-full bg-pink-500 shadow-[0_0_10px_rgba(236,72,153,0.6)]" />
-                                       <span className="font-bold">Lovable Cloud</span>
-                                    </td>
-                                    <td className="p-6 text-emerald-400 font-black uppercase tracking-tighter italic">Operational</td>
-                                    <td className="p-6 font-mono text-xs text-slate-500">{lovableLink.split('/').pop()}</td>
-                                    <td className="p-6 text-slate-400 font-bold">{attachments.length > 0 || projectLink ? 'Full-Context' : 'Prompt-Only'}</td>
-                                 </tr>
-                               )}
-                               <tr className="opacity-40">
-                                  <td className="p-6 flex items-center gap-4">
-                                     <div className="w-3 h-3 rounded-full bg-indigo-500" />
-                                     <span className="font-bold">Stitch Archive</span>
-                                  </td>
-                                  <td className="p-6 text-slate-500 font-black uppercase tracking-tighter italic">Standby</td>
-                                  <td className="p-6 font-mono text-xs">local_snapshot_822</td>
-                                  <td className="p-6 text-slate-400 font-bold">Base Manifest</td>
-                               </tr>
-                            </tbody>
-                         </table>
+                         <p className="text-slate-400 text-sm leading-relaxed">Conectividade segura ponta-a-ponta e integração com backend Supabase configurada.</p>
+                         <button className="w-full py-5 bg-white text-slate-950 rounded-[2rem] font-black text-xs uppercase tracking-widest hover:bg-slate-200 transition-all">Gerenciar Backend</button>
                       </div>
                    </div>
                 </div>
@@ -687,31 +723,32 @@ const App: React.FC = () => {
           )}
         </div>
 
-        {/* Status Bar */}
         <footer className="h-12 border-t border-white/5 bg-slate-950/80 backdrop-blur-md px-10 flex items-center justify-between text-[10px] font-mono text-slate-600">
-           <div className="flex items-center gap-8">
+           <div className="flex items-center gap-10">
               <span className="flex items-center gap-2.5">
-                 <div className={`w-2 h-2 rounded-full ${status === GenerationStatus.ERROR ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)]' : 'bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.6)]'}`} /> 
-                 <span className="font-black uppercase tracking-widest text-slate-400">Gemini 3 Pro Sync: Ready</span>
+                 <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" /> 
+                 <span className="font-black uppercase tracking-widest text-slate-400">Multi-Build Factory Active</span>
               </span>
-              <span className="text-indigo-400 font-black">STITCH_PROTOCOL_V4</span>
-              <span className="text-pink-400 font-black">LOVABLE_RUNTIME_STABLE</span>
+              <span className="flex items-center gap-2">
+                 <TrendingUp className="w-3 h-3 text-indigo-500" />
+                 <span className="font-black text-indigo-400 uppercase">Status: {credits.plan.toUpperCase()}</span>
+              </span>
            </div>
-           <div className="font-black uppercase tracking-[0.2em] text-slate-700">
-              Continuity Architect &copy; 2024
+           <div className="font-black uppercase tracking-widest text-slate-800">
+              Transform Engine &copy; 2024
            </div>
         </footer>
       </main>
 
       <style>{`
-        @keyframes loading {
-          0% { transform: translateX(-100%); }
-          100% { transform: translateX(300%); }
+        @keyframes spin-slow {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
         }
-        .scrollbar-hide::-webkit-scrollbar { display: none; }
-        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
-        .scrollbar-thin::-webkit-scrollbar { width: 4px; }
+        .animate-spin-slow { animation: spin-slow 10s linear infinite; }
+        .scrollbar-thin::-webkit-scrollbar { width: 4px; height: 4px; }
         .scrollbar-thin::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.05); border-radius: 10px; }
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
       `}</style>
     </div>
   );

@@ -1,0 +1,8 @@
+{
+  "name": "Stitch & Lovable Prototype Studio",
+  "description": "A high-fidelity AI-powered prototype generator for building modern mobile app concepts. Define your vision, generate screens, and visualize your 'APK' in a real-time interactive environment.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
